@@ -60,6 +60,35 @@ def generate(input):
     Image.fromarray(np.array(decoded*255, dtype=np.uint8)[0]).save(save_path)
     return save_path,seed
     
+@torch.inference_mode()
+def generate_batch(prompts, negative_prompt, width, height, seed, steps, cfg, denoise, batch_size=6, sampler_name="euler", scheduler="simple"):
+    """
+    Generate a batch of images from a list of prompts
+    Each prompt will generate a batch of images
+    """
+    results = []
+    for i, prompt in enumerate(prompts):
+        # For each prompt, generate a batch of images
+        input_data = {
+            "input": {
+                "positive_prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "width": width,
+                "height": height,
+                "batch_size": int(batch_size),
+                "seed": int(seed) + i if seed != 0 else 0,  # Increment seed for each prompt if not random
+                "steps": int(steps),
+                "cfg": float(cfg),
+                "sampler_name": sampler_name,
+                "scheduler": scheduler,
+                "denoise": float(denoise),
+            }
+        }
+        
+        image_path, used_seed = generate(input_data)
+        results.append((image_path, used_seed))
+    return results
+
 import gradio as gr
 def generate_ui(
     positive_prompt,
@@ -69,30 +98,41 @@ def generate_ui(
     steps,
     cfg,
     denoise,
-    batch_size=1,
+    batch_size=6,
     sampler_name="euler",
     scheduler="simple"
 ):
     width, height = [int(x) for x in aspect_ratio.split("(")[0].strip().split("x")]
 
-    input_data = {
-        "input": {
-            "positive_prompt": positive_prompt,
-            "negative_prompt": negative_prompt,
-            "width": width,
-            "height": height,
-            "batch_size": int(batch_size),
-            "seed": int(seed),
-            "steps": int(steps),
-            "cfg": float(cfg),
-            "sampler_name": sampler_name,
-            "scheduler": scheduler,
-            "denoise": float(denoise),
+    # Split the positive prompt by paragraphs (separated by double newlines)
+    paragraphs = [p.strip() for p in positive_prompt.split('\n\n') if p.strip()]
+    
+    if len(paragraphs) > 1:
+        # If there are multiple paragraphs, process each as a separate batch
+        results = generate_batch(paragraphs, negative_prompt, width, height, seed, steps, cfg, denoise, batch_size, sampler_name, scheduler)
+        # Return the last result for display
+        image_path, used_seed = results[-1]
+        return image_path, image_path, used_seed
+    else:
+        # If there's only one paragraph, process normally
+        input_data = {
+            "input": {
+                "positive_prompt": positive_prompt,
+                "negative_prompt": negative_prompt,
+                "width": width,
+                "height": height,
+                "batch_size": int(batch_size),
+                "seed": int(seed),
+                "steps": int(steps),
+                "cfg": float(cfg),
+                "sampler_name": sampler_name,
+                "scheduler": scheduler,
+                "denoise": float(denoise),
+            }
         }
-    }
 
-    image_path,seed = generate(input_data)
-    return image_path,image_path,seed
+        image_path,seed = generate(input_data)
+        return image_path,image_path,seed
 
 
 
@@ -102,8 +142,8 @@ DEFAULT_NEGATIVE = """low quality, blurry, unnatural skin tone, bad lighting, pi
 noise, oversharpen, soft focus,pixelated"""
 
 ASPECTS = [
-    "1024x1024 (1:1)", "1152x896 (9:7)", "896x1152 (7:9)",
-    "1152x864 (4:3)", "864x1152 (3:4)", "1248x832 (3:2)",
+    "768x768 (1:1)", "1024x1024 (1:1)", "1152x896 (9:7)", "896x1152 (7:9)",
+    "1152x864 (4:3)", "864x1152 (3:4)", "1248x832 (2:3)",
     "832x1248 (2:3)", "1280x720 (16:9)", "720x1280 (9:16)",
     "1344x576 (21:9)", "576x1344 (9:21)"
 ]
@@ -115,8 +155,12 @@ with gr.Blocks(theme=gr.themes.Soft(),css=custom_css) as demo:
   gr.HTML("""
 <div style=\"width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; margin:20px 0;\">
     <h1 style=\"font-size:2.5em; margin-bottom:10px;\">Z-Image-Turbo</h1>
+    <a href=\"https://github.com/myfairx/Z-Image-Colabx\" target=\"_blank\">
+        <img src=\"https://img.shields.io/badge/GitHub-Z--Image--Colabx-181717?logo=github&logoColor=white\"
+             style=\"height:15px; margin-right: 10px;\">
+    </a>
     <a href=\"https://github.com/Tongyi-MAI/Z-Image\" target=\"_blank\">
-        <img src=\"https://img.shields.io/badge/GitHub-Z--Image-181717?logo=github&logoColor=white\"
+        <img src=\"https://img.shields.io/badge/GitHub-Original_Source-181717?logo=github&logoColor=white\"
              style=\"height:15px;\">
     </a>
 </div>
